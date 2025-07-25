@@ -1,0 +1,17 @@
+# Python & IDE artifacts
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.vscode/
+
+# Environment Folders
+msc_*/
+.env
+venv/
+
+# Data Files & Large Files (DO NOT TRACK)
+data/Processed_Features/
+Dissertation_Data/
+*.csv
+*.pkl
+*.zip
