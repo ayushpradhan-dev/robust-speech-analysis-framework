@@ -1,6 +1,8 @@
 # src/utils.py
 
 import pandas as pd
+import numpy as np
+from tqdm.auto import tqdm
 
 def aggregate_clip_features(clip_features_df, metadata_df):
     """
@@ -39,7 +41,7 @@ def aggregate_clip_features(clip_features_df, metadata_df):
     # subsequent operations are at the participant level.
     merged_df = merged_df.drop(columns=['filename'])
     
-    # --- Core Aggregation Step ---
+    # - Core Aggregation Step
     # Group the DataFrame by the unique participant ID. For each feature column,
     # calculate both the mean and the standard deviation across all of a
     # participant's clips.
@@ -56,3 +58,26 @@ def aggregate_clip_features(clip_features_df, metadata_df):
     final_df = agg_df_multi_level.reset_index()
     
     return final_df
+
+
+def aggregate_interview_sequences(clip_sequences, interview_metadata_df):
+    """
+    Aggregates clip-level sequences into a single sequence per session for DL models.
+    Concatenates individual clip sequences end-to-end for each participant.
+    """
+    # Group all clip filenames by their unique participant ID.
+    participant_clips = interview_metadata_df.groupby('unique_participant_id')['filename'].apply(list)
+    
+    session_sequences = {}
+    print("\nAggregating interview clips into single sequences per participant...")
+    for participant_id, clip_filenames in tqdm(participant_clips.items(), desc="Aggregating Sequences"):
+        
+        # Collect all sequence arrays for the current participant.
+        participant_sequences = [clip_sequences[fname] for fname in clip_filenames if fname in clip_sequences]
+        
+        # If any valid sequences were found, concatenate them.
+        if participant_sequences:
+            # vstack stitches the arrays together vertically to form one long sequence.
+            session_sequences[participant_id] = np.vstack(participant_sequences)
+            
+    return session_sequences

@@ -45,14 +45,12 @@ def extract_opensmile_features(
             try:
                 subprocess.run(command, check=True, capture_output=True, text=True)
                 
-                # --- THIS IS THE KEY FIX ---
-                # Read the standard CSV file. We still use the default separator ','
+                # Read the standard CSV file. Use the default separator ','
                 # because the corrected config file should produce a standard CSV.
                 features_df = pd.read_csv(output_csv_path, sep=',')
                 
-                # Instead of dropping the first column by a hardcoded name, we select all
-                # columns *from the second column onwards* using iloc. This is robust.
-                # .iloc[:, 1:] means "all rows, all columns from index 1 to the end".
+                # Instead of dropping the first column by a hardcoded name, select all
+                # columns from the second column onwards.
                 feature_dict = features_df.iloc[:, 1:].iloc[0].to_dict()
                 
                 feature_dict['filename'] = filename 

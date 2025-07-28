@@ -30,7 +30,7 @@ class ResidualBlock(nn.Module):
         out = F.silu(out)
         return out
 
-# --- NEW: Self-Attention Pooling Layer ---
+# Self-Attention Pooling Layer
 class AttentionPooling(nn.Module):
     """
     A self-attention pooling layer that learns to weight and aggregate a sequence.
@@ -44,23 +44,23 @@ class AttentionPooling(nn.Module):
         # lstm_out shape: (batch_size, seq_len, input_dim)
         
         # Compute attention scores
-        # -> (batch_size, seq_len, 1)
+        # (batch_size, seq_len, 1)
         attention_scores = self.attention_weights(lstm_out)
         
         # Apply softmax to get attention probabilities
-        # -> (batch_size, seq_len, 1)
+        # (batch_size, seq_len, 1)
         attention_probs = F.softmax(attention_scores, dim=1)
         
         # Compute the weighted sum of the sequence vectors
         # torch.sum(lstm_out * attention_probs, dim=1)
-        # -> (batch_size, input_dim)
+        # (batch_size, input_dim)
         context_vector = torch.sum(lstm_out * attention_probs, dim=1)
         
         return context_vector
 
 class CNNLSTM(nn.Module):
     """
-    An improved CNN-LSTM model with Residual Blocks and Attention Pooling.
+    A CNN-LSTM model with Residual Blocks and Attention Pooling.
     """
     def __init__(self, 
                  input_dim=768, 
@@ -84,7 +84,7 @@ class CNNLSTM(nn.Module):
             dropout=dropout_rate if lstm_layers > 1 else 0
         )
 
-        # --- UPDATED: Attention Pooling Layer ---
+        # Attention Pooling Layer
         # The input to the attention layer is the output of the bidirectional LSTM
         # which has a dimension of lstm_hidden_dim * 2
         self.attention_pooling = AttentionPooling(input_dim=lstm_hidden_dim * 2)
@@ -104,9 +104,8 @@ class CNNLSTM(nn.Module):
         
         lstm_out, _ = self.lstm(x)
         
-        # --- UPDATED: Replaced mean pooling with attention pooling ---
-        # Old way: mean_pooled = torch.mean(lstm_out, dim=1)
-        # New way:
+        # removed: mean_pooled = torch.mean(lstm_out, dim=1)
+        # Attention Pooling
         attention_pooled = self.attention_pooling(lstm_out)
         
         x = self.dropout(attention_pooled)
