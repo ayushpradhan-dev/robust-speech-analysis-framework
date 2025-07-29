@@ -4,8 +4,7 @@ import pandas as pd
 import numpy as np
 import parselmouth
 from parselmouth.praat import call
-from tqdm.auto import tqdm # Use tqdm.auto for flexible progress bars in notebooks/scripts
-
+from tqdm.auto import tqdm
 
 def _speechrate(snd):
     """Calculates timing and pausing features."""
@@ -197,15 +196,15 @@ def _extract_CPP(snd, floor, ceiling, frame_shift):
                     try:
                         CPP_Value = call(PowerCepstrogram, 'Get CPPS...', "no", 0.01, 0.001, 60, 330, 0.05, "parabolic", 0.001, 0, "Straight", "Robust")
                         
-                        # DEBUG: Print the raw CPP value before filtering
+                        # debugging: Print the raw CPP value before filtering
                         if not np.isnan(CPP_Value):
                             all_cpp_values_before_filtering.append(CPP_Value)
 
                         if not np.isnan(CPP_Value) and CPP_Value > 4:
                             CPP_list.append(CPP_Value)
                     except Exception as e_cpp:
-                        # This inner try...except is fine for skipping problematic segments
-                        pass # Silently continue if CPPS fails on a single segment
+                        # This inner try...except is for skipping problematic segments
+                        pass # Continues if CPPS fails on a single segment
         
         return np.mean(CPP_list) if CPP_list else np.nan
 
@@ -257,10 +256,8 @@ def _extract_Spectral_Moments(snd, floor, ceiling, window_size, frame_shift):
     except Exception:
         return np.nan, np.nan, np.nan, np.nan
 
-# =============================================================================
-# MAIN ORCHESTRATOR FUNCTION
-# =============================================================================
 
+# Main Orchestrator Function
 def extract_mshds_features(input_df, audio_file_column='filepath', verbose=True):
     """
     Extracts MSHDS features for all audio files listed in a DataFrame.

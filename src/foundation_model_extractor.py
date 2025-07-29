@@ -9,112 +9,28 @@ from tqdm.auto import tqdm
 import pickle
 import numpy as np
 
-def extract_wav2vec2_embeddings(input_df, model_name="facebook/wav2vec2-base-960h", audio_file_column='filepath', verbose=True):
-    """
-    Extract mean-pooled Wav2Vec2 embeddings for each audio file.
-
-    Process each file individually for maximum stability, especially with audio
-    clips of highly variable length. This function is used to generate summary
-    feature vectors for classifiers like SVMs.
-
-    Args:
-        input_df (pd.DataFrame): DataFrame containing filepaths to audio files.
-        model_name (str): The name of the Hugging Face model to use.
-        audio_file_column (str): The name of the column in input_df that holds the filepaths.
-        verbose (bool): If True, print progress and warning messages.
-
-    Returns:
-        pd.DataFrame: A DataFrame where each row corresponds to an audio file,
-                      containing a 'filename' column and feature columns ('dim_0', 'dim_1', ...).
-    """
-    # Set the computation device to GPU if available, otherwise fallback to CPU.
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if verbose: print(f"Using device: {device}")
-        
-    try:
-        # Load the pre-trained model and its corresponding processor from Hugging Face.
-        processor = Wav2Vec2Processor.from_pretrained(model_name)
-        model = Wav2Vec2Model.from_pretrained(model_name).to(device)
-        model.eval() # Set the model to evaluation mode (disables dropout, etc.).
-    except Exception as e:
-        print(f"Error loading model '{model_name}': {e}"); return pd.DataFrame()
-
-    all_embeddings_list = []
-    
-    # Create an iterator with a progress bar if verbose mode is on.
-    iterator = tqdm(input_df.iterrows(), total=input_df.shape[0], desc=f"Extracting {os.path.basename(model_name)} Embeddings") if verbose else input_df.iterrows()
-
-    # Process each audio file specified in the input DataFrame.
-    for index, row in iterator:
-        filepath = row[audio_file_column]
-        filename = os.path.basename(filepath)
-        
+def _safe_cuda_cleanup(*tensors):
+    """Safely delete tensors and attempt to clear CUDA cache."""
+    for tensor in tensors:
+        if tensor is not None:
+            del tensor
+    if torch.cuda.is_available():
         try:
-            # Load the audio waveform.
-            waveform, sr = torchaudio.load(filepath)
-            
-            # Define a minimum duration threshold to filter out invalid/empty clips.
-            min_duration_samples = int(16000 * 0.5) # 0.5 seconds
-            if waveform.shape[1] < min_duration_samples:
-                if verbose: print(f"INFO: Skipping very short file '{filename}'.")
-                continue
+            torch.cuda.empty_cache()
+        except RuntimeError as e:
+            pass
 
-            # --- Pre-processing Steps ---
-            # 1. Convert to mono by averaging channels if necessary.
-            if waveform.shape[0] > 1: waveform = waveform.mean(dim=0, keepdim=True)
-            # 2. Resample to 16kHz, which is required by the Wav2Vec2 model.
-            if sr != 16000:
-                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)
-                waveform = resampler(waveform)
-
-            # Use the processor to convert the raw waveform into the model's expected input format.
-            input_values = processor(waveform.squeeze().numpy(), sampling_rate=16000, return_tensors="pt").input_values.to(device)
-            
-            # Perform a forward pass through the model without calculating gradients.
-            with torch.no_grad():
-                outputs = model(input_values)
-            
-            # --- Feature Aggregation ---
-            # Take the output of the last hidden layer and apply mean pooling across the time dimension.
-            # This creates a single summary vector for the entire audio clip.
-            mean_embedding = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
-            
-            # Convert the embedding vector into a dictionary of features.
-            embedding_dict = {f'dim_{k}': val for k, val in enumerate(mean_embedding[0])}
-            embedding_dict['filename'] = filename
-            all_embeddings_list.append(embedding_dict)
-
-            # Explicitly free up GPU memory after each file to prevent crashes with large datasets.
-            del input_values, outputs, mean_embedding, waveform
-            if device.type == 'cuda': torch.cuda.empty_cache()
-
-        except Exception as e:
-            if verbose: print(f"ERROR processing file '{filename}': {e}. Skipping.")
-            continue
-
-    if not all_embeddings_list and verbose:
-        print("Warning: No embeddings were successfully extracted.")
-        
-    return pd.DataFrame(all_embeddings_list)
-
-
-def extract_wav2vec2_sequences(input_df, model_name="facebook/wav2vec2-base-960h", audio_file_column='filepath', verbose=True):
+def extract_wav2vec2_sequences(
+    input_df, 
+    model_name="facebook/wav2vec2-base-960h", 
+    audio_file_column='filepath', 
+    chunk_seconds=5,  # Process audio in 5-second chunks
+    overlap_seconds=1, # Overlap chunks by 1 second
+    verbose=True
+):
     """
-    Extracts the full sequence of Wav2Vec2 embeddings for each audio file.
-
-    This function does not aggregate the embeddings. It returns a dictionary
-    mapping each filename to its sequence of feature vectors, which is the
-    required format for sequence models like LSTMs or Transformers.
-
-    Args:
-        input_df (pd.DataFrame): DataFrame containing filepaths to audio files.
-        model_name (str): The name of the Hugging Face model to use.
-        audio_file_column (str): The name of the column in input_df that holds the filepaths.
-        verbose (bool): If True, print progress and warning messages.
-
-    Returns:
-        dict: A dictionary where keys are filenames (str) and values are the
-              corresponding embedding sequences as NumPy arrays (shape: [time_steps, 768]).
+    Extracts the full sequence of wav2vec2 embeddings for each audio file,
+    using a chunking strategy to handle long files and avoid GPU memory errors.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if verbose: print(f"Using device: {device}")
@@ -127,46 +43,75 @@ def extract_wav2vec2_sequences(input_df, model_name="facebook/wav2vec2-base-960h
         print(f"Error loading model '{model_name}': {e}"); return {}
 
     sequences_dict = {}
+    sample_rate = 16000 # The model's required sample rate
     
-    iterator = tqdm(input_df.iterrows(), total=input_df.shape[0], desc=f"Extracting {os.path.basename(model_name)} Sequences") if verbose else input_df.iterrows()
+    iterator = tqdm(input_df.iterrows(), total=input_df.shape[0], desc=f"Extracting Sequences")
 
     for index, row in iterator:
         filepath = row[audio_file_column]
         filename = os.path.basename(filepath)
-
+        
         try:
             waveform, sr = torchaudio.load(filepath)
 
-            # Apply the same strict duration filter for consistency.
-            min_duration_samples = int(16000 * 0.5)
-            if waveform.shape[1] < min_duration_samples:
+            if waveform.shape[1] < int(sample_rate * 0.5):
                 if verbose: print(f"INFO: Skipping very short file '{filename}'.")
                 continue
-            
-            # Apply the same pre-processing (mono, 16kHz resample).
-            if waveform.shape[0] > 1: waveform = waveform.mean(dim=0, keepdim=True)
-            if sr != 16000:
-                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)
-                waveform = resampler(waveform)
-            
-            input_values = processor(waveform.squeeze().numpy(), sampling_rate=16000, return_tensors="pt").input_values.to(device)
-            
-            with torch.no_grad():
-                outputs = model(input_values)
-            
-            # Does not pool, instead gets the full sequence from the last hidden state.
-            # Squeeze to remove the batch dimension, move to CPU, and convert to NumPy.
-            sequence_embedding = outputs.last_hidden_state.squeeze(0).cpu().numpy()
-            
-            # Store the entire sequence array in the output dictionary.
-            sequences_dict[filename] = sequence_embedding
 
-            # Clean up memory after each file.
-            del input_values, outputs, sequence_embedding, waveform
-            if device.type == 'cuda': torch.cuda.empty_cache()
+            if waveform.shape[0] > 1: waveform = waveform.mean(dim=0, keepdim=True)
+            if sr != sample_rate:
+                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=sample_rate)
+                waveform = resampler(waveform)
+
+            # Chunking Logic
+            chunk_size = int(sample_rate * chunk_seconds)
+            step_size = int(sample_rate * (chunk_seconds - overlap_seconds))
+            
+            all_chunk_embeddings = []
+
+            # Slide a window across the waveform
+            for i in range(0, waveform.shape[1], step_size):
+                chunk = waveform[:, i:i+chunk_size]
+                
+                # If the last chunk is too small then skip it
+                if chunk.shape[1] < int(sample_rate * 0.5):
+                    continue
+
+                input_values, outputs, sequence_chunk = None, None, None
+                try:
+                    input_values = processor(chunk.squeeze().numpy(), sampling_rate=sample_rate, return_tensors="pt").input_values.to(device)
+                    with torch.no_grad():
+                        outputs = model(input_values)
+                    sequence_chunk = outputs.last_hidden_state.squeeze(0).cpu().numpy()
+                    all_chunk_embeddings.append(sequence_chunk)
+                finally:
+                    _safe_cuda_cleanup(input_values, outputs, sequence_chunk)
+
+            # If any chunks were processed, stack them into one long sequence
+            if all_chunk_embeddings:
+                final_sequence = np.vstack(all_chunk_embeddings)
+                sequences_dict[filename] = final_sequence
                 
         except Exception as e:
-            if verbose: print(f"ERROR processing file '{filename}': {e}. Skipping.")
+            if verbose: print(f"FATAL ERROR processing file '{filename}': {e}. Skipping.")
             continue
             
     return sequences_dict
+
+# The summary embeddings function is a simple wrapper around the sequence extractor, 
+# used to obtain the feature set for SVM.
+def extract_wav2vec2_embeddings(input_df, **kwargs):
+    """Extracts mean-pooled embeddings by first getting sequences."""
+    
+    sequences_dict = extract_wav2vec2_sequences(input_df, **kwargs)
+    if not sequences_dict:
+        return pd.DataFrame()
+        
+    all_embeddings_list = []
+    for filename, sequence in sequences_dict.items():
+        mean_embedding = np.mean(sequence, axis=0)
+        embedding_dict = {f'dim_{k}': val for k, val in enumerate(mean_embedding)}
+        embedding_dict['filename'] = filename
+        all_embeddings_list.append(embedding_dict)
+        
+    return pd.DataFrame(all_embeddings_list)

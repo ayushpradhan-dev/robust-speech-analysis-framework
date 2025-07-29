@@ -100,7 +100,7 @@ def load_androids_corpus(base_corpus_path, verbose=True):
     # Load fold maps
     read_fold_map, interview_fold_map = _load_fold_maps(fold_list_csv_path)
 
-    # --- Process Reading Task ---
+    # Process Reading Task
     reading_data = []
     if verbose:
         print(f"\nProcessing Reading Task from: {os.path.abspath(reading_task_root)}")
@@ -134,7 +134,7 @@ def load_androids_corpus(base_corpus_path, verbose=True):
     if verbose and not reading_df.empty:
         print(f"Processed {len(reading_df)} files from Reading-Task.")
 
-    # --- Process Interview Task Clips ---
+    # Process Interview Task Clips
     interview_data = []
     if verbose:
         print(f"\nProcessing Interview Task clips from: {os.path.abspath(interview_clips_root)}")
@@ -175,8 +175,8 @@ def load_androids_corpus(base_corpus_path, verbose=True):
 
 # Example of how to run this file directly for testing
 if __name__ == '__main__':
-    # This assumes you run this script from the root of your MSc_Project directory
-    # If you run from inside src/, the path should be '../data/Androids_Corpus'
+    # Assuming this script from the root of MSc_Project directory
+    # If ran from inside src/, the path should be '../data/Androids_Corpus'
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     base_path = os.path.join(project_root, 'data', 'Androids_Corpus')
 
