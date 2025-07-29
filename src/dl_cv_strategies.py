@@ -108,33 +108,41 @@ def _eval_model(model, data_loader, device):
             all_labels.extend(labels.cpu().numpy())
     return np.array(all_labels), np.array(all_preds), np.array(all_probs)
 
+
 # Main Cross-Validation Orchestrator
 def run_pytorch_cv_with_early_stopping(
     sequences_dict, 
-    metadata_df, 
+    metadata_df,
     n_splits=5,
     epochs=50, 
     patience=10,
     batch_size=8, 
     learning_rate=1e-4,
-    augmentations=None # Add augmentation pipeline as an argument
+    augmentations=None
 ):
+    """
+    Performs k-fold CV for a PyTorch model with a validation split for early stopping.
+    """
     outer_cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     results = []
     fold_predictions = []
     
-    labels = metadata_df.set_index('filename')['label'].apply(lambda x: 1 if x == 'Patient' else 0)
-    filenames = list(sequences_dict.keys())
+    label_map = metadata_df.set_index('unique_participant_id')['label'].apply(lambda x: 1 if x == 'Patient' else 0)
+    common_participants = sorted(list(set(sequences_dict.keys()) & set(label_map.index)))
     
-    aligned_sequences = [sequences_dict[fname] for fname in filenames]
-    aligned_labels = labels.loc[filenames].values
+    aligned_sequences = [sequences_dict[pid] for pid in common_participants]
+    aligned_labels = label_map.loc[common_participants].values
 
     X_data = np.array(aligned_sequences, dtype=object)
     y_data = np.array(aligned_labels)
-
-    outer_fold_iterator = tqdm(enumerate(outer_cv.split(X_data, y_data)), total=n_splits, desc=f"Running {n_splits}-Fold CV")
+    
+    outer_fold_iterator = tqdm(
+        enumerate(outer_cv.split(X_data, y_data)), 
+        total=n_splits, 
+        desc=f"Running {n_splits}-Fold CV"
+    )
 
     for fold, (train_val_idx, test_idx) in outer_fold_iterator:
         X_train_val, X_test = X_data[train_val_idx], X_data[test_idx]
@@ -146,23 +154,19 @@ def run_pytorch_cv_with_early_stopping(
         X_train, X_val = X_train_val[train_idx], X_train_val[val_idx]
         y_train, y_val = y_train_val[train_idx], y_train_val[val_idx]
 
-        # Pass augmentations to the training dataset only
         train_dataset = SequenceDataset(X_train, y_train, transform=augmentations)
-        val_dataset = SequenceDataset(X_val, y_val, transform=None) # No augmentation on validation set
-        test_dataset = SequenceDataset(X_test, y_test, transform=None) # No augmentation on test set
+        val_dataset = SequenceDataset(X_val, y_val, transform=None)
+        test_dataset = SequenceDataset(X_test, y_test, transform=None)
         
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=4, persistent_workers=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4, persistent_workers=True)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4, persistent_workers=True)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
         
         model = CNNLSTM(input_dim=X_train[0].shape[1]).to(device)
         loss_fn = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-        
-        # Initialize the Learning Rate Scheduler
         scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5)
         
-        # Pass the scheduler to the training loop
         best_model = _train_eval_loop(model, train_loader, val_loader, loss_fn, optimizer, scheduler, device, epochs, patience)
             
         y_true, y_pred, y_prob = _eval_model(best_model, test_loader, device)

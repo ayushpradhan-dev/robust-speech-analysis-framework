@@ -30,7 +30,7 @@ def aggregate_clip_features(clip_features_df, metadata_df):
         print("Warning: Input clip_features_df is empty. Returning an empty aggregated DataFrame.")
         return pd.DataFrame()
     
-    # To make the merge more memory-efficient, select only the necessary
+    # To make the merge more memory-efficient, selects only the necessary
     # columns from the metadata DataFrame.
     metadata_subset = metadata_df[['filename', 'unique_participant_id']]
     

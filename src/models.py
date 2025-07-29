@@ -104,7 +104,6 @@ class CNNLSTM(nn.Module):
         
         lstm_out, _ = self.lstm(x)
         
-        # removed: mean_pooled = torch.mean(lstm_out, dim=1)
         # Attention Pooling
         attention_pooled = self.attention_pooling(lstm_out)
         
