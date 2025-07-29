@@ -9,10 +9,11 @@ msc_*/
 .env
 venv/
 
-# Data Files & Large Files (DO NOT TRACK)
+# Data Files & Large Files
 Dissertation_Data/
 data/Androids-Corpus/
 *.zip
 
-# Ignore the very large raw sequence file, but track the others
+# Ignore the very large raw sequence file
 features_wav2vec2_sequences_reading_task.pkl
+features_wav2vec2_sequences_interview_clips.pkl
