@@ -36,11 +36,22 @@ def collate_fn(batch):
 
 # Training and Evaluation Functions 
 def _train_eval_loop(model, train_loader, val_loader, loss_fn, optimizer, scheduler, device, epochs, patience):
+    """
+    Handles the full training loop for one fold, including validation,
+    early stopping, saving the best model, and returning the loss history.
+    """
+    # Lists to store the loss history for plotting 
+    train_loss_history = []
+    val_loss_history = []
+    
     best_val_loss = float('inf')
     epochs_no_improve = 0
     best_model_weights = None
+
     for epoch in range(epochs):
+        # Training Phase
         model.train()
+        train_loss = 0
         for sequences, labels in train_loader:
             sequences, labels = sequences.to(device), labels.to(device)
             optimizer.zero_grad()
@@ -48,6 +59,12 @@ def _train_eval_loop(model, train_loader, val_loader, loss_fn, optimizer, schedu
             loss = loss_fn(outputs, labels)
             loss.backward()
             optimizer.step()
+            train_loss += loss.item()
+        
+        avg_train_loss = train_loss / len(train_loader)
+        train_loss_history.append(avg_train_loss)
+        
+        # Validation Phase
         model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -56,19 +73,29 @@ def _train_eval_loop(model, train_loader, val_loader, loss_fn, optimizer, schedu
                 outputs = model(sequences)
                 loss = loss_fn(outputs, labels)
                 val_loss += loss.item()
+        
         avg_val_loss = val_loss / len(val_loader)
+        val_loss_history.append(avg_val_loss)
+        
         scheduler.step(avg_val_loss)
+        
+        # Early Stopping Logic
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             best_model_weights = copy.deepcopy(model.state_dict())
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
+        
         if epochs_no_improve >= patience:
+            print(f"  > Early stopping triggered at epoch {epoch + 1}")
             break
+            
     if best_model_weights:
         model.load_state_dict(best_model_weights)
-    return model
+    
+    # Return the loss histories along with the model
+    return model, train_loss_history, val_loss_history
 
 def _eval_model(model, data_loader, device):
     model.eval()
