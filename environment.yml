@@ -1,0 +1,31 @@
+name: msc_final_env
+
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pytorch
+  - torchvision
+  - torchaudio
+  - ffmpeg
+  # Platform-specific CUDA dependency
+  - pytorch-cuda=12.1 # [win]
+
+  - pip:
+    - pandas
+    - numpy
+    - scikit-learn
+    - librosa
+    - jupyter
+    - tqdm
+    - praat-parselmouth
+    - transformers
+    - sentencepiece
+ #   - torch-audiomentations
+    - optuna
+    - seaborn
+    - matplotlib
