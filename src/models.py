@@ -137,10 +137,11 @@ class CNNLSTM(nn.Module):
         
         super(CNNLSTM, self).__init__()
 
-        # Define the sequence of layers in the model.
+        # Define the sequence of layers in the model, residual blocks for stable CNN feature extraction.
         self.res_block1 = ResidualBlock(input_dim, cnn_out_channels, activation_fn=activation_fn)
         self.res_block2 = ResidualBlock(cnn_out_channels, cnn_out_channels, activation_fn=activation_fn)
         
+        # Bidirectional LSTM layer to capture long-term temporal dependencies.
         self.lstm = nn.LSTM(
             input_size=cnn_out_channels,
             hidden_size=lstm_hidden_dim,
@@ -153,6 +154,7 @@ class CNNLSTM(nn.Module):
         # The input dimension to the attention layer is doubled due to the bidirectional LSTM.
         self.attention_pooling = AttentionPooling(input_dim=lstm_hidden_dim * 2)
         
+        # Final classifier head
         self.dropout = nn.Dropout(dropout_rate)
         self.fc = nn.Linear(lstm_hidden_dim * 2, num_classes)
 
